@@ -96,6 +96,37 @@ impl<T> Mutex<T> for parking_lot::FairMutex<T> {
     }
 }
 
+struct WordLockMutex<T> {
+    mutex: parking_lot_core::_priv::WordLock,
+    data: UnsafeCell<T>,
+}
+
+unsafe impl<T> Sync for WordLockMutex<T> {}
+unsafe impl<T: Send> Send for WordLockMutex<T> {}
+
+impl<T> Mutex<T> for WordLockMutex<T> {
+    fn new(v: T) -> Self {
+        Self {
+            mutex: parking_lot_core::_priv::WordLock::new(),
+            data: UnsafeCell::new(v),
+        }
+    }
+    fn lock<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut T) -> R,
+    {
+        self.mutex.lock();
+        let res = unsafe { f(&mut *self.data.get()) };
+        unsafe {
+            self.mutex.unlock();
+        }
+        res
+    }
+    fn name() -> &'static str {
+        "parking_lot_core::WordLock"
+    }
+}
+
 impl<T> Mutex<T> for simple_mutex::Mutex<T> {
     fn new(v: T) -> Self {
         Self::new(v)
@@ -358,6 +389,13 @@ fn run_all(
         test_iterations,
     );
     run_benchmark_iterations::<parking_lot::FairMutex<f64>>(
+        num_threads,
+        work_per_critical_section,
+        work_between_critical_sections,
+        seconds_per_test,
+        test_iterations,
+    );
+    run_benchmark_iterations::<WordLockMutex<f64>>(
         num_threads,
         work_per_critical_section,
         work_between_critical_sections,

@@ -65,3 +65,11 @@ pub use self::parking_lot::{
 };
 pub use self::parking_lot::{DEFAULT_PARK_TOKEN, DEFAULT_UNPARK_TOKEN};
 pub use self::spinwait::SpinWait;
+
+// not public API
+#[cfg(feature = "_priv_benchmark_only")]
+#[doc(hidden)]
+pub mod _priv {
+    #[doc(hidden)]
+    pub type WordLock = crate::word_lock::WordLock;
+}
