@@ -5,9 +5,10 @@ authors = ["Amanieu d'Antras <amanieu@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-parking_lot = {path = ".."}
+parking_lot = { path = ".." }
 seqlock = "0.1"
 libc = "0.2"
+simple-mutex = "1.1"
 
 [[bin]]
 name = "mutex"
