@@ -57,6 +57,31 @@ impl<T> Mutex<T> for parking_lot::Mutex<T> {
     }
 }
 
+// We can't directly use `parking_lot::ReentrantMutex` (it won't give out
+// `&mut`). Nonetheless, we can fake it by using a `ReentrantMutex<()>`. This is
+// only sound because we know that the test code here doesn't acquire the lock
+// multiple times on the same thread.
+struct ParkingLotReMutex<T>(parking_lot::ReentrantMutex<()>, UnsafeCell<T>);
+unsafe impl<T> Send for ParkingLotReMutex<T> where parking_lot::ReentrantMutex<T>: Send {}
+unsafe impl<T> Sync for ParkingLotReMutex<T> where parking_lot::ReentrantMutex<T>: Sync {}
+
+impl<T> Mutex<T> for ParkingLotReMutex<T> {
+    fn new(v: T) -> Self {
+        Self(parking_lot::ReentrantMutex::new(()), UnsafeCell::new(v))
+    }
+    fn lock<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut T) -> R,
+    {
+        let _g = self.0.lock();
+        unsafe { f(&mut *self.1.get()) }
+    }
+    fn name() -> &'static str {
+        // use a name that fits in the column.
+        "p_l::ReentrantMutex"
+    }
+}
+
 impl<T> Mutex<T> for simple_mutex::Mutex<T> {
     fn new(v: T) -> Self {
         Self::new(v)
@@ -305,6 +330,13 @@ fn run_all(
     );
 
     run_benchmark_iterations::<parking_lot::Mutex<f64>>(
+        num_threads,
+        work_per_critical_section,
+        work_between_critical_sections,
+        seconds_per_test,
+        test_iterations,
+    );
+    run_benchmark_iterations::<ParkingLotReMutex<f64>>(
         num_threads,
         work_per_critical_section,
         work_between_critical_sections,
