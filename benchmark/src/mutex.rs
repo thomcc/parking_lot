@@ -71,6 +71,51 @@ impl<T> Mutex<T> for simple_mutex::Mutex<T> {
         "simple_mutex::Mutex"
     }
 }
+#[cfg(target_os = "macos")]
+mod os_unfair_lock {
+    use core::cell::UnsafeCell;
+
+    #[allow(nonstandard_style)]
+    #[repr(C)]
+    struct os_unfair_lock(u32);
+    const OS_UNFAIR_LOCK_INIT: os_unfair_lock = os_unfair_lock(0);
+
+    extern "C" {
+        fn os_unfair_lock_lock(lock: *mut os_unfair_lock);
+        fn os_unfair_lock_unlock(lock: *mut os_unfair_lock);
+    }
+
+    pub struct OsUnfairLockMutex<T>(UnsafeCell<T>, UnsafeCell<os_unfair_lock>);
+
+    unsafe impl<T> Sync for OsUnfairLockMutex<T> {}
+    unsafe impl<T: Send> Send for OsUnfairLockMutex<T> {}
+
+    impl<T> super::Mutex<T> for OsUnfairLockMutex<T> {
+        fn new(v: T) -> Self {
+            Self(UnsafeCell::new(v), UnsafeCell::new(OS_UNFAIR_LOCK_INIT))
+        }
+        fn lock<F, R>(&self, f: F) -> R
+        where
+            F: FnOnce(&mut T) -> R,
+        {
+            unsafe {
+                os_unfair_lock_lock(self.1.get());
+                let res = f(&mut *self.0.get());
+                os_unfair_lock_unlock(self.1.get());
+                res
+            }
+        }
+        fn name() -> &'static str {
+            "os_unfair_lock"
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+use os_unfair_lock::OsUnfairLockMutex;
+
+#[cfg(not(target_os = "macos"))]
+type OsUnfairLockMutex<T> = std::sync::Mutex<T>;
 
 #[cfg(not(windows))]
 type SrwLock<T> = std::sync::Mutex<T>;
@@ -292,6 +337,15 @@ fn run_all(
     }
     if cfg!(unix) {
         run_benchmark_iterations::<PthreadMutex<f64>>(
+            num_threads,
+            work_per_critical_section,
+            work_between_critical_sections,
+            seconds_per_test,
+            test_iterations,
+        );
+    }
+    if cfg!(target_os = "macos") {
+        run_benchmark_iterations::<OsUnfairLockMutex<f64>>(
             num_threads,
             work_per_critical_section,
             work_between_critical_sections,
