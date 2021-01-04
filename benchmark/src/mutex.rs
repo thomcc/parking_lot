@@ -77,8 +77,22 @@ impl<T> Mutex<T> for ParkingLotReMutex<T> {
         unsafe { f(&mut *self.1.get()) }
     }
     fn name() -> &'static str {
-        // use a name that fits in the column.
-        "p_l::ReentrantMutex"
+        "parking_lot::ReentrantMutex"
+    }
+}
+
+impl<T> Mutex<T> for parking_lot::FairMutex<T> {
+    fn new(v: T) -> Self {
+        parking_lot::FairMutex::new(v)
+    }
+    fn lock<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut T) -> R,
+    {
+        f(&mut *self.lock())
+    }
+    fn name() -> &'static str {
+        "parking_lot::FairMutex"
     }
 }
 
@@ -290,7 +304,7 @@ fn run_benchmark_iterations<M: Mutex<f64> + Send + Sync + 'static>(
 
     let k_hz = 1.0 / seconds_per_test as f64 / 1000.0;
     println!(
-        "{:20} | {:10.3} kHz | {:10.3} kHz | {:10.3} kHz",
+        "{:30} | {:10.3} kHz | {:10.3} kHz | {:10.3} kHz",
         M::name(),
         average * k_hz,
         data[data.len() / 2] as f64 * k_hz,
@@ -325,7 +339,7 @@ fn run_all(
     *first = false;
 
     println!(
-        "{:^20} | {:^14} | {:^14} | {:^14}",
+        "{:^30} | {:^14} | {:^14} | {:^14}",
         "name", "average", "median", "std.dev."
     );
 
@@ -337,6 +351,13 @@ fn run_all(
         test_iterations,
     );
     run_benchmark_iterations::<ParkingLotReMutex<f64>>(
+        num_threads,
+        work_per_critical_section,
+        work_between_critical_sections,
+        seconds_per_test,
+        test_iterations,
+    );
+    run_benchmark_iterations::<parking_lot::FairMutex<f64>>(
         num_threads,
         work_per_critical_section,
         work_between_critical_sections,
