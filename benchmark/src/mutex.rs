@@ -157,6 +157,56 @@ impl<T> Mutex<T> for spin::Mutex<T> {
     }
 }
 
+impl<T> Mutex<T> for spinning_top::Spinlock<T> {
+    fn new(v: T) -> Self {
+        Self::new(v)
+    }
+    fn lock<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut T) -> R,
+    {
+        f(&mut *self.lock())
+    }
+    fn name() -> &'static str {
+        "spinning_top::Spinlock"
+    }
+}
+
+struct FlumeSpinLock<T>(spinning_top::Spinlock<T>);
+impl<T> Mutex<T> for FlumeSpinLock<T> {
+    fn new(v: T) -> Self {
+        Self(spinning_top::Spinlock::new(v))
+    }
+
+    fn lock<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut T) -> R,
+    {
+        // https://github.com/zesterer/flume/blob/0c5ee684/src/lib.rs#L299-L311
+        #[inline]
+        fn wait_lock<'a, T>(
+            lock: &'a spinning_top::Spinlock<T>,
+        ) -> spinning_top::SpinlockGuard<'a, T> {
+            let mut i = 4;
+            loop {
+                for _ in 0..10 {
+                    if let Some(guard) = lock.try_lock() {
+                        return guard;
+                    }
+                    std::thread::yield_now();
+                }
+                std::thread::sleep(Duration::from_nanos(1 << i));
+                i += 1;
+            }
+        }
+
+        f(&mut *wait_lock(&self.0))
+    }
+    fn name() -> &'static str {
+        "FlumeSpinLock"
+    }
+}
+
 #[cfg(target_os = "macos")]
 mod os_unfair_lock {
     use core::cell::UnsafeCell;
@@ -434,6 +484,20 @@ fn run_all(
         test_iterations,
     );
     run_benchmark_iterations::<spin::Mutex<f64>>(
+        num_threads,
+        work_per_critical_section,
+        work_between_critical_sections,
+        seconds_per_test,
+        test_iterations,
+    );
+    run_benchmark_iterations::<spinning_top::Spinlock<f64>>(
+        num_threads,
+        work_per_critical_section,
+        work_between_critical_sections,
+        seconds_per_test,
+        test_iterations,
+    );
+    run_benchmark_iterations::<FlumeSpinLock<f64>>(
         num_threads,
         work_per_critical_section,
         work_between_critical_sections,
